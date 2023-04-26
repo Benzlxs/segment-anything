@@ -148,13 +148,14 @@ amg_settings.add_argument(
     ),
 )
 
-
 def write_masks_to_folder(masks: List[Dict[str, Any]], path: str) -> None:
     header = "id,area,bbox_x0,bbox_y0,bbox_w,bbox_h,point_input_x,point_input_y,predicted_iou,stability_score,crop_box_x0,crop_box_y0,crop_box_w,crop_box_h"  # noqa
+    import pudb
+    pudb.set_trace()
     metadata = [header]
     for i, mask_data in enumerate(masks):
         mask = mask_data["segmentation"]
-        filename = f"{i}.png"
+        filename = f"mask_{i}.png"
         cv2.imwrite(os.path.join(path, filename), mask * 255)
         mask_metadata = [
             str(i),
@@ -168,6 +169,43 @@ def write_masks_to_folder(masks: List[Dict[str, Any]], path: str) -> None:
         row = ",".join(mask_metadata)
         metadata.append(row)
     metadata_path = os.path.join(path, "metadata.csv")
+    with open(metadata_path, "w") as f:
+        f.write("\n".join(metadata))
+
+    return
+
+def write_masks_to_folder_with_image(masks: List[Dict[str, Any]], path: str, image: Any) -> None:
+    header = "id,area,bbox_x0,bbox_y0,bbox_w,bbox_h,point_input_x,point_input_y,predicted_iou,stability_score,crop_box_x0,crop_box_y0,crop_box_w,crop_box_h"  # noqa
+    import numpy as np
+    # import pudb
+    # pudb.set_trace()
+    metadata = [header]
+    ori_image = np.copy(image)
+    for i, mask_data in enumerate(masks):
+        mask = mask_data["segmentation"]
+        # cv2.imwrite(os.path.join(path, filename), mask * 255)
+        colors = np.random.random((1,3))*255
+        color_map = mask[...,None] * colors
+        image = image + 0.2*color_map
+        filename = f"mask_%04d.png"%i
+        cv2.imwrite(os.path.join(path, filename), mask * 255)
+        # filename = f"img_allmask_%04d.png"%i
+        # cv2.imwrite(os.path.join(path, filename), image)
+        filename = f"img_binarymask_%04d.png"%i
+        cv2.imwrite(os.path.join(path, filename), (ori_image + 0.3*color_map).astype(np.uint8))
+        mask_metadata = [
+            str(i),
+            str(mask_data["area"]),
+            *[str(x) for x in mask_data["bbox"]],
+            *[str(x) for x in mask_data["point_coords"][0]],
+            str(mask_data["predicted_iou"]),
+            str(mask_data["stability_score"]),
+            *[str(x) for x in mask_data["crop_box"]],
+        ]
+        row = ",".join(mask_metadata)
+        metadata.append(row)
+    metadata_path = os.path.join(path, "metadata.csv")
+    cv2.imwrite(os.path.join(path, "image_mask.png"), image.astype(np.uint8))
     with open(metadata_path, "w") as f:
         f.write("\n".join(metadata))
 
@@ -198,7 +236,16 @@ def main(args: argparse.Namespace) -> None:
     _ = sam.to(device=args.device)
     output_mode = "coco_rle" if args.convert_to_rle else "binary_mask"
     amg_kwargs = get_amg_kwargs(args)
-    generator = SamAutomaticMaskGenerator(sam, output_mode=output_mode, **amg_kwargs)
+    generator = SamAutomaticMaskGenerator(model=sam,
+                                          points_per_side=32,
+                                          points_per_batch=128,
+                                          pred_iou_thresh=0.88,
+                                          stability_score_thresh=0.95,
+                                          crop_nms_thresh=0.7,
+                                          crop_n_layers=0,
+                                          crop_n_points_downscale_factor=1,
+                                          min_mask_region_area=800,  # Requires open-cv to run post-processing
+                                          output_mode=output_mode)
 
     if not os.path.isdir(args.input):
         targets = [args.input]
@@ -220,12 +267,17 @@ def main(args: argparse.Namespace) -> None:
 
         masks = generator.generate(image)
 
+        # import pudb
+        # pudb.set_trace()
+
         base = os.path.basename(t)
         base = os.path.splitext(base)[0]
         save_base = os.path.join(args.output, base)
         if output_mode == "binary_mask":
             os.makedirs(save_base, exist_ok=False)
-            write_masks_to_folder(masks, save_base)
+            # write_masks_to_folder(masks, save_base)
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+            write_masks_to_folder_with_image(masks, save_base, image)
         else:
             save_file = save_base + ".json"
             with open(save_file, "w") as f:
