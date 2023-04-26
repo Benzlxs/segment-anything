@@ -186,13 +186,13 @@ def write_masks_to_folder_with_image(masks: List[Dict[str, Any]], path: str, ima
         # cv2.imwrite(os.path.join(path, filename), mask * 255)
         colors = np.random.random((1,3))*255
         color_map = mask[...,None] * colors
-        image = image + 0.2*color_map
+        image = image*(~mask[..., None]) + color_map
         filename = f"mask_%04d.png"%i
         cv2.imwrite(os.path.join(path, filename), mask * 255)
         # filename = f"img_allmask_%04d.png"%i
         # cv2.imwrite(os.path.join(path, filename), image)
         filename = f"img_binarymask_%04d.png"%i
-        cv2.imwrite(os.path.join(path, filename), (ori_image + 0.3*color_map).astype(np.uint8))
+        cv2.imwrite(os.path.join(path, filename), (ori_image*(~mask[...,None]) + color_map).astype(np.uint8))
         mask_metadata = [
             str(i),
             str(mask_data["area"]),
@@ -254,7 +254,7 @@ def main(args: argparse.Namespace) -> None:
             f for f in os.listdir(args.input) if not os.path.isdir(os.path.join(args.input, f))
         ]
         targets = [os.path.join(args.input, f) for f in targets]
-
+    targets = sorted(targets)
     os.makedirs(args.output, exist_ok=True)
 
     for t in targets:
